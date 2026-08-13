@@ -31,13 +31,10 @@ export function SocialTasks({ completedTasks }: { completedTasks: Record<string,
   const [verifying, setVerifying] = useState<Record<string, boolean>>({})
 
   const handleTaskClick = (task: SocialTask) => {
-    // Abrir la red social del proyecto
     window.open(task.link, "_blank")
 
-    // Si ya está completada, no hacer nada
     if (localCompleted[task.id]) return
 
-    // Iniciar cuenta regresiva de 10 segundos para la verificación gratis
     if (!timers[task.id] && !verifying[task.id]) {
       setTimers((prev) => ({ ...prev, [task.id]: 10 }))
       setVerifying((prev) => ({ ...prev, [task.id]: true }))
@@ -114,7 +111,6 @@ export function SocialTasks({ completedTasks }: { completedTasks: Record<string,
   )
 }
 
-// Vistas complementarias para que no de error el juego
 export function ReferidosView({ friends }: { friends: any[] }) { return <div className="p-4 text-center text-sm text-muted-foreground">Pestaña de Referidos Activa</div> }
 export function RuletaView() { return <div className="p-4 text-center text-sm text-muted-foreground">Pestaña de la Ruleta Activa</div> }
 export function MineriaView({ balance, owned }: { balance: number, owned: any }) { return <div className="p-4 text-center text-sm text-muted-foreground">Pestaña de Minería (Budare/Molino) Activa</div> }
