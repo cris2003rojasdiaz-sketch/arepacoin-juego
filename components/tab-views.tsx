@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { AdsgramButton } from "@/components/adsgram-button"
 
 /* ---------------------------------- Tipos --------------------------------- */
 
@@ -174,11 +175,13 @@ export function MineriaView({
   owned,
   perHour,
   onBuy,
+  isVip = false,
 }: {
   balance: number
   owned: Record<string, number>
   perHour: number
   onBuy: (u: Upgrade) => void
+  isVip?: boolean
 }) {
   return (
     <div className="mx-auto w-full max-w-sm">
@@ -201,7 +204,8 @@ export function MineriaView({
       <div className="flex flex-col gap-3">
         {UPGRADES.map((u) => {
           const level = owned[u.id] ?? 0
-          const affordable = balance >= u.cost
+          const cost = Math.floor(isVip ? u.cost * 0.8 : u.cost)
+          const affordable = balance >= cost
           return (
             <div
               key={u.id}
@@ -242,9 +246,11 @@ export function MineriaView({
 export function SocialTasks({
   completed,
   onComplete,
+  onAdReward,
 }: {
   completed: Record<string, boolean>
   onComplete: (t: SocialTask) => void
+  onAdReward: (amount: number) => void
 }) {
   const handleClick = (t: SocialTask) => {
     if (completed[t.id]) return
@@ -262,6 +268,7 @@ export function SocialTasks({
         </h3>
       </div>
       <div className="flex flex-col gap-2">
+        <AdsgramButton compact onReward={onAdReward} />
         {SOCIAL_TASKS.map((t) => {
           const done = completed[t.id]
           return (

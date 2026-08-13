@@ -2,14 +2,14 @@
 
 import { cn } from "@/lib/utils"
 
-export type TabId = "tap" | "referidos" | "ruleta" | "mineria" | "nfts"
+export type TabId = "tap" | "referidos" | "juegos" | "mineria" | "vip"
 
 const TABS: { id: TabId; label: string; icon: string; color: string }[] = [
   { id: "tap", label: "Tap", icon: "🎮", color: "var(--chart-1)" },
   { id: "referidos", label: "Referidos", icon: "👥", color: "var(--chart-3)" },
-  { id: "ruleta", label: "Ruleta", icon: "🎡", color: "var(--chart-5)" },
+  { id: "juegos", label: "Juegos", icon: "🕹️", color: "var(--chart-5)" },
   { id: "mineria", label: "Minería", icon: "⛏️", color: "var(--chart-4)" },
-  { id: "nfts", label: "NFTs", icon: "🖼️", color: "var(--chart-2)" },
+  { id: "vip", label: "Tienda VIP", icon: "👑", color: "var(--chart-2)" },
 ]
 
 export function BottomNav({

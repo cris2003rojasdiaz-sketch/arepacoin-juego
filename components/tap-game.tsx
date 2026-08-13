@@ -6,13 +6,15 @@ import { useCoinSound } from "@/hooks/use-coin-sound"
 import { BottomNav, type TabId } from "@/components/bottom-nav"
 import {
   ReferidosView,
-  RuletaView,
   MineriaView,
   SocialTasks,
   UPGRADES,
   type Upgrade,
   type SocialTask,
 } from "@/components/tab-views"
+import { JuegosView } from "@/components/games-center"
+import { VipStoreView } from "@/components/vip-store"
+import { AdsgramButton } from "@/components/adsgram-button"
 import {
   WalletButton,
   WalletModal,
@@ -22,15 +24,19 @@ import {
   randomSolanaAddress,
   type Wallet,
 } from "@/components/game-features"
+import { loadOrCreateProfile, saveProfile } from "@/lib/game-data"
+import { getGameUser, initTelegramApp } from "@/lib/telegram"
 
 const MAX_ENERGY = 1500
 const RECHARGE_PER_SECOND = 3
 const TAP_COST = 1
-const TAP_REWARD = 1
+const BASE_TAP_REWARD = 1
 const REFERRAL_REWARD = 5000
 const DAY_MS = 24 * 60 * 60 * 1000
+const VIP_TAP_MULTIPLIER = 2
+const VIP_UPGRADE_DISCOUNT = 0.8 // 20% más baratas
 
-type FloatingScore = { id: number; x: number; y: number }
+type FloatingScore = { id: number; x: number; y: number; amount: number }
 
 export function TapGame() {
   // Balance en coma flotante para admitir ingresos pasivos fraccionados/seg.
@@ -47,6 +53,10 @@ export function TapGame() {
   )
   const [friends, setFriends] = useState(0)
 
+  // Membresía VIP (sincronizada con Supabase).
+  const [isVip, setIsVip] = useState(false)
+  const [profileLoaded, setProfileLoaded] = useState(false)
+
   // Billetera Solana (persiste entre pestañas porque vive aquí).
   const [wallet, setWallet] = useState<Wallet | null>(null)
   const [showWallet, setShowWallet] = useState(false)
@@ -61,6 +71,42 @@ export function TapGame() {
   const playCoin = useCoinSound()
   const floatId = useRef(0)
   const popTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const tapReward = isVip ? BASE_TAP_REWARD * VIP_TAP_MULTIPLIER : BASE_TAP_REWARD
+
+  // Carga (o crea) el perfil del usuario al iniciar: busca por ID de Telegram.
+  useEffect(() => {
+    initTelegramApp()
+    let active = true
+    loadOrCreateProfile().then((profile) => {
+      if (!active) return
+      setBalance(profile.balance)
+      setIsVip(profile.isVip)
+      setProfileLoaded(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // Sincroniza balance/VIP con Supabase (con debounce para no saturar).
+  useEffect(() => {
+    if (!profileLoaded) return
+    if (saveTimeout.current) clearTimeout(saveTimeout.current)
+    saveTimeout.current = setTimeout(() => {
+      const user = getGameUser()
+      saveProfile({
+        telegramId: user.telegramId,
+        username: user.username,
+        balance,
+        isVip,
+      })
+    }, 1500)
+    return () => {
+      if (saveTimeout.current) clearTimeout(saveTimeout.current)
+    }
+  }, [balance, isVip, profileLoaded])
 
   // Ganancia pasiva por hora derivada de las mejoras compradas.
   const perHour = useMemo(
@@ -92,13 +138,13 @@ export function TapGame() {
     }
   }, [])
 
-  const addBalance = useCallback((n: number) => setBalance((b) => b + n), [])
+  const addBalance = useCallback((n: number) => setBalance((b) => Math.max(0, b + n)), [])
 
   const handleTap = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (energy < TAP_COST) return
 
-      setBalance((b) => b + TAP_REWARD)
+      setBalance((b) => b + tapReward)
       setEnergy((en) => Math.max(0, en - TAP_COST))
       playCoin()
 
@@ -108,28 +154,29 @@ export function TapGame() {
       if (popTimeout.current) clearTimeout(popTimeout.current)
       popTimeout.current = setTimeout(() => setPopping(false), 240)
 
-      // "+1" flotante en la posición del toque.
+      // "+N" flotante en la posición del toque.
       const rect = e.currentTarget.getBoundingClientRect()
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
       const id = floatId.current++
-      setFloats((prev) => [...prev, { id, x, y }])
+      setFloats((prev) => [...prev, { id, x, y, amount: tapReward }])
       setTimeout(() => {
         setFloats((prev) => prev.filter((f) => f.id !== id))
       }, 800)
     },
-    [energy, playCoin],
+    [energy, playCoin, tapReward],
   )
 
-  // Comprar una mejora de cocina: descuenta el costo y sube de nivel.
+  // Comprar una mejora de cocina: descuenta el costo (con descuento VIP) y sube de nivel.
   const handleBuy = useCallback(
     (u: Upgrade) => {
-      if (balance < u.cost) return
-      setBalance((b) => b - u.cost)
+      const cost = Math.floor(isVip ? u.cost * VIP_UPGRADE_DISCOUNT : u.cost)
+      if (balance < cost) return
+      setBalance((b) => b - cost)
       setOwned((prev) => ({ ...prev, [u.id]: (prev[u.id] ?? 0) + 1 }))
       playCoin()
     },
-    [balance, playCoin],
+    [balance, playCoin, isVip],
   )
 
   // Completar una tarea social: otorga la recompensa una sola vez.
@@ -141,6 +188,15 @@ export function TapGame() {
       playCoin()
     },
     [completedTasks, addBalance, playCoin],
+  )
+
+  // Recompensa genérica (anuncios, mini-juegos). Puede ser negativa (apuestas).
+  const handleReward = useCallback(
+    (delta: number) => {
+      addBalance(delta)
+      if (delta > 0) playCoin()
+    },
+    [addBalance, playCoin],
   )
 
   // Invitar a un amigo (al copiar el enlace): +5.000 $AREPA.
@@ -176,6 +232,11 @@ export function TapGame() {
     playCoin()
   }, [streak, nextClaimAt, addBalance, playCoin])
 
+  const handleActivateVip = useCallback(() => {
+    setIsVip(true)
+    playCoin()
+  }, [playCoin])
+
   const energyPct = (energy / MAX_ENERGY) * 100
   const lowEnergy = energy < TAP_COST
   const displayBalance = Math.floor(balance)
@@ -201,11 +262,19 @@ export function TapGame() {
             </span>{" "}
             <span className="text-muted-foreground">$AREPA</span>
           </p>
+          {isVip && (
+            <span
+              className="ml-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-extrabold text-primary-foreground"
+              aria-label="Miembro VIP"
+            >
+              👑 VIP
+            </span>
+          )}
         </div>
       </header>
 
-      {/* Contenido según pestaña (área desplazable) */}
-      <div className="flex-1 overflow-y-auto py-4">
+      {/* Contenido según pestaña (área desplazable con espacio inferior) */}
+      <div className="flex-1 overflow-y-auto py-4 pb-28">
         {tab === "tap" ? (
           <section className="flex min-h-full flex-col items-center">
             <div className="mb-3 w-full">
@@ -216,7 +285,7 @@ export function TapGame() {
               />
             </div>
             <p className="mb-2 text-sm font-medium text-muted-foreground">
-              ¡Toca la arepa para ganar!
+              ¡Toca la arepa para ganar{isVip ? " (x2 VIP)" : ""}!
             </p>
             <div className="relative flex items-center justify-center py-2">
               <button
@@ -247,7 +316,7 @@ export function TapGame() {
                   />
                 </span>
 
-                {/* Puntajes flotantes "+1" */}
+                {/* Puntajes flotantes "+N" */}
                 {floats.map((f) => (
                   <span
                     key={f.id}
@@ -255,10 +324,15 @@ export function TapGame() {
                     className="animate-float-up pointer-events-none absolute z-10 text-2xl font-extrabold text-primary drop-shadow"
                     style={{ left: f.x, top: f.y }}
                   >
-                    +{TAP_REWARD}
+                    +{f.amount}
                   </span>
                 ))}
               </button>
+            </div>
+
+            {/* Anuncio recompensado (debajo de la arepa) */}
+            <div className="mt-4 w-full max-w-sm">
+              <AdsgramButton onReward={handleReward} />
             </div>
 
             {/* Tareas de redes sociales */}
@@ -266,20 +340,24 @@ export function TapGame() {
               <SocialTasks
                 completed={completedTasks}
                 onComplete={handleCompleteTask}
+                onAdReward={handleReward}
               />
             </div>
           </section>
         ) : tab === "referidos" ? (
           <ReferidosView friends={friends} onInvite={handleInvite} />
-        ) : tab === "ruleta" ? (
-          <RuletaView />
-        ) : (
+        ) : tab === "juegos" ? (
+          <JuegosView balance={balance} onReward={handleReward} />
+        ) : tab === "mineria" ? (
           <MineriaView
             balance={balance}
             owned={owned}
             perHour={perHour}
             onBuy={handleBuy}
+            isVip={isVip}
           />
+        ) : (
+          <VipStoreView isVip={isVip} onActivateVip={handleActivateVip} />
         )}
       </div>
 
